@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stripe Monthly Payout Summary</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        margin: 2rem auto;
+        max-width: 960px;
+        line-height: 1.6;
+        color: #0f172a;
+        padding: 0 1rem 2rem;
+        background: #f7f9fb;
+      }
+      header {
+        margin-bottom: 1.5rem;
+      }
+      h1 {
+        margin: 0 0 0.35rem;
+      }
+      p {
+        margin: 0.25rem 0;
+        color: #52606d;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+      }
+      .controls {
+        display: grid;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      input[type="file"] {
+        padding: 0.6rem;
+        border: 1px solid #cbd2d9;
+        border-radius: 8px;
+        background: #fff;
+      }
+      label.checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        user-select: none;
+      }
+      .actions {
+        margin-top: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      a.home-link {
+        text-decoration: none;
+        color: #2563eb;
+        font-weight: 600;
+      }
+      .error {
+        margin-top: 1rem;
+        padding: 0.9rem 1rem;
+        border-radius: 10px;
+        background: #fef2f2;
+        border: 1px solid #fecdd3;
+        color: #b91c1c;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1.25rem;
+      }
+      th,
+      td {
+        padding: 0.75rem;
+        text-align: left;
+      }
+      th {
+        background: #f1f5f9;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      tbody tr:nth-child(odd) {
+        background: #f8fafc;
+      }
+      tbody tr:nth-child(even) {
+        background: #ffffff;
+      }
+      .summary-count {
+        margin-top: 1rem;
+        color: #334155;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a class="home-link" href="index.html">← Back to tools</a>
+      <h1>Stripe Monthly Payout Summary</h1>
+      <p>Upload a Stripe transaction CSV to see totals grouped by description.</p>
+    </header>
+
+    <main class="card">
+      <div class="controls">
+        <label for="csv-file">Stripe transactions CSV</label>
+        <input id="csv-file" type="file" accept=".csv,text/csv" />
+        <label class="checkbox">
+          <input type="checkbox" id="group-similar" />
+          <span>Group similar transactions between sections</span>
+        </label>
+      </div>
+
+      <div id="error" class="error hidden" role="alert"></div>
+      <p class="summary-count hidden" id="summary-count"></p>
+
+      <table id="results" class="hidden" aria-live="polite">
+        <thead>
+          <tr>
+            <th scope="col">Description</th>
+            <th scope="col">Total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Total</th>
+            <td id="grand-total"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </main>
+
+    <script>
+      const fileInput = document.getElementById('csv-file');
+      const errorBox = document.getElementById('error');
+      const resultsTable = document.getElementById('results');
+      const tbody = resultsTable.querySelector('tbody');
+      const summaryCount = document.getElementById('summary-count');
+      const groupSimilarCheckbox = document.getElementById('group-similar');
+      const grandTotalCell = document.getElementById('grand-total');
+
+      let parsedData = null;
+
+      fileInput.addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        resetOutput();
+        if (!file) return;
+
+        try {
+          const text = await file.text();
+          const rows = parseCsv(text);
+          if (rows.length < 2) {
+            throw new Error('The CSV must include a header row and at least one data row.');
+          }
+
+          const { descriptionIndex, amountIndex } = resolveColumns(rows[0]);
+          parsedData = {
+            rows: rows.slice(1),
+            descriptionIndex,
+            amountIndex,
+          };
+          processAndRender();
+        } catch (err) {
+          showError(err.message || 'Unable to process this file. Please check the CSV format.');
+        }
+      });
+
+      groupSimilarCheckbox.addEventListener('change', () => {
+        processAndRender();
+      });
+
+      function processAndRender() {
+        if (!parsedData) return;
+        const grouped = groupByDescription(
+          parsedData.rows,
+          parsedData.descriptionIndex,
+          parsedData.amountIndex,
+          groupSimilarCheckbox.checked
+        );
+        renderResults(grouped);
+      }
+
+      function resetOutput() {
+        errorBox.classList.add('hidden');
+        errorBox.textContent = '';
+        resultsTable.classList.add('hidden');
+        summaryCount.classList.add('hidden');
+        tbody.innerHTML = '';
+        grandTotalCell.textContent = '';
+        parsedData = null;
+      }
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.remove('hidden');
+      }
+
+      function renderResults(result) {
+        const entries = Array.from(result.grouped.entries());
+        if (!entries.length) {
+          showError('No rows could be read from the CSV. Please verify the file contents.');
+          return;
+        }
+
+        const formatter = new Intl.NumberFormat(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+        tbody.innerHTML = '';
+        entries
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .forEach(([description, total]) => {
+            const row = document.createElement('tr');
+            const descCell = document.createElement('td');
+            descCell.textContent = description || 'No description';
+            const totalCell = document.createElement('td');
+            totalCell.textContent = formatter.format(total);
+            row.append(descCell, totalCell);
+            tbody.append(row);
+          });
+
+        grandTotalCell.textContent = formatter.format(result.grandTotal);
+        summaryCount.textContent = `${entries.length} description${
+          entries.length === 1 ? '' : 's'
+        } summarized.`;
+        summaryCount.classList.remove('hidden');
+        resultsTable.classList.remove('hidden');
+      }
+
+      function resolveColumns(headerRow) {
+        const headers = headerRow.map((h) => h.trim().toLowerCase());
+
+        const descriptionIndex = headers.findIndex((h) =>
+          ['description', 'statement descriptor', 'details'].includes(h)
+        );
+        if (descriptionIndex === -1) {
+          throw new Error("Couldn't find a description column. Looked for 'Description', 'Statement Descriptor', or 'Details'.");
+        }
+
+        const amountIndex = headers.findIndex((h) => ['amount', 'net', 'total'].includes(h));
+        if (amountIndex === -1) {
+          throw new Error("Couldn't find an amount column. Looked for 'Amount', 'Net', or 'Total'.");
+        }
+
+        return { descriptionIndex, amountIndex };
+      }
+
+      function groupByDescription(rows, descriptionIndex, amountIndex, useSectionGrouping) {
+        const grouped = new Map();
+        let grandTotal = 0;
+
+        for (const row of rows) {
+          if (row.length === 1 && row[0].trim() === '') continue;
+          const description = (row[descriptionIndex] || '').trim();
+          const amountRaw = row[amountIndex] || '';
+          const amount = parseAmount(amountRaw);
+          if (!Number.isFinite(amount)) {
+            throw new Error(`Unable to read an amount value from '${amountRaw}'.`);
+          }
+          const key = deriveGroupingKey(description, useSectionGrouping);
+          const current = grouped.get(key) ?? 0;
+          grouped.set(key, current + amount);
+          grandTotal += amount;
+        }
+
+        return { grouped, grandTotal };
+      }
+
+      function deriveGroupingKey(description, useSectionGrouping) {
+        if (!useSectionGrouping) return description;
+        const match = description.match(/\(([^()]*)\)\s*$/);
+        if (match && match[1].trim()) {
+          return match[1].trim();
+        }
+        return description;
+      }
+
+      function parseAmount(value) {
+        const normalized = value.replace(/[$£€,]/g, '').trim();
+        if (normalized === '') return 0;
+        const numeric = Number(normalized);
+        return Number.isFinite(numeric) ? numeric : NaN;
+      }
+
+      function parseCsv(text) {
+        const normalized = text.replace(/\r\n?/g, '\n');
+        const lines = normalized.split('\n').filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
+        return lines.map(parseCsvLine);
+      }
+
+      function parseCsvLine(line) {
+        const row = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i += 1) {
+          const char = line[i];
+          if (inQuotes) {
+            if (char === '"') {
+              const next = line[i + 1];
+              if (next === '"') {
+                current += '"';
+                i += 1;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              current += char;
+            }
+          } else {
+            if (char === '"') {
+              inQuotes = true;
+            } else if (char === ',') {
+              row.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+        }
+
+        row.push(current);
+        return row;
+      }
+    </script>
+  </body>
+</html>
