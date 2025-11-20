@@ -52,10 +52,6 @@
         cursor: pointer;
         user-select: none;
       }
-      .row-select {
-        width: 1.1rem;
-        height: 1.1rem;
-      }
       .actions {
         margin-top: 1rem;
         display: flex;
@@ -86,15 +82,6 @@
         padding: 0.75rem;
         text-align: left;
       }
-      td:last-child,
-      th:last-child {
-        width: 90px;
-        text-align: center;
-      }
-      td:first-child,
-      th:first-child {
-        width: 80px;
-      }
       th {
         background: #f1f5f9;
         border-bottom: 1px solid #e2e8f0;
@@ -108,16 +95,6 @@
       .summary-count {
         margin-top: 1rem;
         color: #334155;
-      }
-      .selection-summary {
-        margin-top: 0.75rem;
-        color: #0f172a;
-        font-weight: 600;
-      }
-      .done-row .desc,
-      .done-row .total {
-        text-decoration: line-through;
-        color: #94a3b8;
       }
       .hidden {
         display: none;
@@ -147,29 +124,18 @@
       <table id="results" class="hidden" aria-live="polite">
         <thead>
           <tr>
-            <th scope="col">Include</th>
             <th scope="col">Description</th>
             <th scope="col">Total</th>
-            <th scope="col">Done</th>
           </tr>
         </thead>
         <tbody></tbody>
         <tfoot>
           <tr>
-            <td></td>
             <th scope="row">Total</th>
             <td id="grand-total"></td>
-            <td></td>
-          </tr>
-          <tr>
-            <td></td>
-            <th scope="row">Remaining</th>
-            <td id="remaining-total"></td>
-            <td></td>
           </tr>
         </tfoot>
       </table>
-      <p id="selected-summary" class="selection-summary hidden"></p>
     </main>
 
     <script>
@@ -180,12 +146,8 @@
       const summaryCount = document.getElementById('summary-count');
       const groupSimilarCheckbox = document.getElementById('group-similar');
       const grandTotalCell = document.getElementById('grand-total');
-      const remainingTotalCell = document.getElementById('remaining-total');
-      const selectedSummary = document.getElementById('selected-summary');
 
       let parsedData = null;
-      let currencyFormatter = null;
-      let currentGrandTotal = 0;
 
       fileInput.addEventListener('change', async (event) => {
         const file = event.target.files?.[0];
@@ -233,11 +195,7 @@
         summaryCount.classList.add('hidden');
         tbody.innerHTML = '';
         grandTotalCell.textContent = '';
-        remainingTotalCell.textContent = '';
-        selectedSummary.classList.add('hidden');
-        selectedSummary.textContent = '';
         parsedData = null;
-        currentGrandTotal = 0;
       }
 
       function showError(message) {
@@ -256,52 +214,26 @@
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
-        currencyFormatter = formatter;
 
         tbody.innerHTML = '';
         entries
           .sort((a, b) => a[0].localeCompare(b[0]))
           .forEach(([description, total]) => {
             const row = document.createElement('tr');
-
-            const selectCell = document.createElement('td');
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'row-select';
-            checkbox.dataset.amount = String(total);
-            checkbox.addEventListener('change', updateSelectedSubtotal);
-            selectCell.append(checkbox);
-
             const descCell = document.createElement('td');
             descCell.textContent = description || 'No description';
-            descCell.className = 'desc';
-
             const totalCell = document.createElement('td');
             totalCell.textContent = formatter.format(total);
-            totalCell.className = 'total';
-
-            const doneCell = document.createElement('td');
-            const doneCheckbox = document.createElement('input');
-            doneCheckbox.type = 'checkbox';
-            doneCheckbox.className = 'done-toggle';
-            doneCheckbox.dataset.amount = String(total);
-            doneCheckbox.addEventListener('change', handleDoneToggle);
-            doneCell.append(doneCheckbox);
-
-            row.append(selectCell, descCell, totalCell, doneCell);
+            row.append(descCell, totalCell);
             tbody.append(row);
           });
 
-        currentGrandTotal = result.grandTotal;
         grandTotalCell.textContent = formatter.format(result.grandTotal);
-        updateRemainingTotal();
         summaryCount.textContent = `${entries.length} description${
           entries.length === 1 ? '' : 's'
         } summarized.`;
         summaryCount.classList.remove('hidden');
         resultsTable.classList.remove('hidden');
-        selectedSummary.classList.add('hidden');
-        selectedSummary.textContent = '';
       }
 
       function resolveColumns(headerRow) {
@@ -314,11 +246,12 @@
           throw new Error("Couldn't find a description column. Looked for 'Description', 'Statement Descriptor', or 'Details'.");
         }
 
-        if (headerRow.length < 9) {
-          throw new Error('The CSV must include at least 9 columns so the Net amount in column 9 can be read.');
+        const amountIndex = headers.findIndex((h) => ['amount', 'net', 'total'].includes(h));
+        if (amountIndex === -1) {
+          throw new Error("Couldn't find an amount column. Looked for 'Amount', 'Net', or 'Total'.");
         }
 
-        return { descriptionIndex, amountIndex: 8 };
+        return { descriptionIndex, amountIndex };
       }
 
       function groupByDescription(rows, descriptionIndex, amountIndex, useSectionGrouping) {
@@ -340,58 +273,6 @@
         }
 
         return { grouped, grandTotal };
-      }
-
-      function updateSelectedSubtotal() {
-        if (!currencyFormatter) return;
-
-        const checkboxes = tbody.querySelectorAll('.row-select');
-        let subtotal = 0;
-
-        checkboxes.forEach((checkbox) => {
-          if (checkbox.checked) {
-            const amount = Number(checkbox.dataset.amount);
-            if (Number.isFinite(amount)) {
-              subtotal += amount;
-            }
-          }
-        });
-
-        if (subtotal === 0) {
-          selectedSummary.classList.add('hidden');
-          selectedSummary.textContent = '';
-          return;
-        }
-
-        selectedSummary.textContent = `Subtotal for selected rows: ${currencyFormatter.format(subtotal)}`;
-        selectedSummary.classList.remove('hidden');
-      }
-
-      function handleDoneToggle(event) {
-        const checkbox = event.target;
-        const row = checkbox.closest('tr');
-        if (row) {
-          row.classList.toggle('done-row', checkbox.checked);
-        }
-        updateRemainingTotal();
-      }
-
-      function updateRemainingTotal() {
-        if (!currencyFormatter) return;
-
-        const doneCheckboxes = tbody.querySelectorAll('.done-toggle:checked');
-        let doneTotal = 0;
-
-        doneCheckboxes.forEach((checkbox) => {
-          const amount = Number(checkbox.dataset.amount);
-          if (Number.isFinite(amount)) {
-            doneTotal += amount;
-          }
-        });
-
-        const remaining = currentGrandTotal - doneTotal;
-        const celebration = Math.abs(remaining) < 0.00001 ? ' 🎉' : '';
-        remainingTotalCell.textContent = `${currencyFormatter.format(remaining)}${celebration}`;
       }
 
       function deriveGroupingKey(description, useSectionGrouping) {
