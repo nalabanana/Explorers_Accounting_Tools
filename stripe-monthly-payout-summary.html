@@ -268,7 +268,7 @@
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.className = 'row-select';
-            checkbox.dataset.amount = String(total);
+            checkbox.dataset.amount = formatDatasetAmount(total);
             checkbox.addEventListener('change', updateSelectedSubtotal);
             selectCell.append(checkbox);
 
@@ -284,7 +284,7 @@
             const doneCheckbox = document.createElement('input');
             doneCheckbox.type = 'checkbox';
             doneCheckbox.className = 'done-toggle';
-            doneCheckbox.dataset.amount = String(total);
+            doneCheckbox.dataset.amount = formatDatasetAmount(total);
             doneCheckbox.addEventListener('change', handleDoneToggle);
             doneCell.append(doneCheckbox);
 
@@ -404,10 +404,16 @@
       }
 
       function parseAmount(value) {
-        const normalized = value.replace(/[$£€,]/g, '').trim();
+        const isParensNegative = /\(.*\)/.test(value);
+        const normalized = value.replace(/[$£€,()]/g, '').trim();
         if (normalized === '') return 0;
         const numeric = Number(normalized);
-        return Number.isFinite(numeric) ? numeric : NaN;
+        if (!Number.isFinite(numeric)) return NaN;
+        return isParensNegative ? -numeric : numeric;
+      }
+
+      function formatDatasetAmount(value) {
+        return Number.isFinite(value) ? value.toFixed(2) : '';
       }
 
       function parseCsv(text) {
