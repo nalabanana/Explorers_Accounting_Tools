@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Equals Money → FreeAgent converter</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        margin: 2rem auto;
+        max-width: 900px;
+        line-height: 1.6;
+        color: #1f2933;
+        padding: 0 1rem;
+      }
+      header {
+        margin-bottom: 1rem;
+      }
+      .card {
+        background: #f8f9fb;
+        border: 1px solid #d8dde6;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+      }
+      .error {
+        color: #b91c1c;
+        margin-top: 1rem;
+        background: #fef2f2;
+        border: 1px solid #fecdd3;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+      }
+      .summary {
+        margin-top: 1.5rem;
+      }
+      .summary ul {
+        padding-left: 1.25rem;
+        margin: 0.5rem 0 0;
+      }
+      .download {
+        margin-top: 1rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      a.home-link {
+        color: #2563eb;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      form {
+        display: grid;
+        gap: 0.75rem;
+      }
+      fieldset {
+        border: 1px solid #d8dde6;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin: 0;
+      }
+      fieldset legend {
+        font-weight: 600;
+        padding: 0 0.25rem;
+      }
+      fieldset p {
+        margin-top: 0.25rem;
+        font-size: 0.95rem;
+        color: #52606d;
+      }
+      .checkbox-option {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.95rem;
+      }
+      .checkbox-stack {
+        display: grid;
+        gap: 0.35rem;
+        margin-top: 0.5rem;
+      }
+      input[type="file"] {
+        padding: 0.5rem;
+        border: 1px solid #cbd2d9;
+        border-radius: 6px;
+      }
+      button {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid #2563eb;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        justify-self: start;
+      }
+      button:hover {
+        background: #1d4ed8;
+      }
+      code {
+        background: #f1f4f8;
+        padding: 0.15rem 0.35rem;
+        border-radius: 4px;
+      }
+      footer {
+        margin-top: 2rem;
+        color: #52606d;
+        font-size: 0.95rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p><a class="home-link" href="index.html">← Back to tools</a></p>
+      <h1>Equals Money → FreeAgent converter</h1>
+      <p>
+        Upload a CSV exported from your Equals Money expense cards and download a
+        FreeAgent-ready CSV.
+      </p>
+    </header>
+
+    <section class="card">
+      <form id="upload-form">
+        <label for="csv_file"><strong>CSV file</strong></label>
+        <input type="file" id="csv_file" name="csv_file" accept=".csv" required />
+        <p>
+          This tool removes internal transfers, card checks, and declined transactions and formats the remaining rows for
+          FreeAgent import.
+        </p>
+        <fieldset>
+          <legend>Transaction filters</legend>
+          <p>Choose which transaction types to omit in the exported CSV.</p>
+          <div class="checkbox-stack">
+            <label class="checkbox-option" for="omit-internal">
+              <input type="checkbox" id="omit-internal" checked />
+              Omit internal transfers
+            </label>
+            <label class="checkbox-option" for="omit-card-checks">
+              <input type="checkbox" id="omit-card-checks" checked />
+              Omit card checks
+            </label>
+            <label class="checkbox-option" for="omit-declined">
+              <input type="checkbox" id="omit-declined" checked />
+              Omit declined transactions
+            </label>
+          </div>
+        </fieldset>
+        <label class="checkbox-option" for="omit-header">
+          <input type="checkbox" id="omit-header" checked />
+          Remove header row from output
+        </label>
+        <button type="submit">Convert CSV</button>
+      </form>
+
+      <div id="error" class="error" hidden></div>
+
+      <div id="results" class="summary" hidden>
+        <h2>Conversion summary</h2>
+        <ul id="summary-list"></ul>
+        <a id="download" class="download" download="freeagent-transactions.csv" href="#">
+          Download FreeAgent CSV
+        </a>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Works entirely in your browser. Data never leaves your device.
+      </p>
+    </footer>
+
+    <script>
+      const form = document.getElementById('upload-form');
+      const fileInput = document.getElementById('csv_file');
+      const errorBox = document.getElementById('error');
+      const results = document.getElementById('results');
+      const summaryList = document.getElementById('summary-list');
+      const downloadLink = document.getElementById('download');
+      const omitInternalCheckbox = document.getElementById('omit-internal');
+      const omitCardChecksCheckbox = document.getElementById('omit-card-checks');
+      const omitDeclinedCheckbox = document.getElementById('omit-declined');
+      const omitHeaderCheckbox = document.getElementById('omit-header');
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        clearUI();
+
+        const file = fileInput.files?.[0];
+        if (!file) {
+          return showError('Please choose a CSV file exported from Equals Money.');
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const text = reader.result?.toString() ?? '';
+            const settings = {
+              skipInternal: omitInternalCheckbox.checked,
+              skipCardChecks: omitCardChecksCheckbox.checked,
+              skipDeclined: omitDeclinedCheckbox.checked,
+              includeHeader: !omitHeaderCheckbox.checked,
+            };
+            const { csvText, summary } = convertEqualsTransactions(text, settings);
+            showResults(csvText, summary);
+          } catch (err) {
+            showError(err instanceof Error ? err.message : 'Unable to process the CSV file.');
+          }
+        };
+        reader.onerror = () => {
+          showError('Unable to read the file. Please try again.');
+        };
+        reader.readAsText(file, 'utf-8');
+      });
+
+      function clearUI() {
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+        results.hidden = true;
+        summaryList.replaceChildren();
+        downloadLink.removeAttribute('href');
+        downloadLink.removeAttribute('download');
+      }
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+      }
+
+      function showResults(csvText, summary) {
+        summaryList.replaceChildren(
+          createSummaryItem('Total rows reviewed', summary.total),
+          createSummaryItem('Accepted transactions', summary.accepted),
+          createSummaryItem(
+            summary.settings.skipInternal ? 'Internal transfers omitted' : 'Internal transfers included',
+            summary.settings.skipInternal ? summary.skipped_internal : 'No'
+          ),
+          createSummaryItem(
+            summary.settings.skipCardChecks ? 'Card checks omitted' : 'Card checks included',
+            summary.settings.skipCardChecks ? summary.skipped_card_checks : 'No'
+          ),
+          createSummaryItem(
+            summary.settings.skipDeclined ? 'Declined transactions omitted' : 'Declined transactions included',
+            summary.settings.skipDeclined ? summary.skipped_declined : 'No'
+          ),
+          createSummaryItem('Header row included', summary.header_included ? 'Yes' : 'No')
+        );
+
+        const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        downloadLink.href = url;
+        downloadLink.download = 'freeagent-transactions.csv';
+
+        results.hidden = false;
+      }
+
+      function createSummaryItem(label, value) {
+        const li = document.createElement('li');
+        li.textContent = `${label}: ${value}`;
+        return li;
+      }
+
+      function convertEqualsTransactions(text, userSettings = {}) {
+        const settings = {
+          skipInternal: true,
+          skipCardChecks: true,
+          skipDeclined: true,
+          includeHeader: true,
+          ...userSettings,
+        };
+
+        const rows = parseCsv(text);
+        if (rows.length === 0) {
+          throw new Error('The uploaded CSV is empty.');
+        }
+
+        const requiredColumns = 15;
+        const output = settings.includeHeader ? [['Date', 'Amount', 'Description']] : [];
+        const summary = {
+          total: 0,
+          accepted: 0,
+          skipped_internal: 0,
+          skipped_card_checks: 0,
+          skipped_declined: 0,
+          settings: { ...settings },
+          header_included: settings.includeHeader,
+        };
+
+        for (let i = 1; i < rows.length; i += 1) {
+          const row = rows[i];
+          if (row.every((cell) => cell.trim() === '')) {
+            continue;
+          }
+
+          summary.total += 1;
+          if (row.length < requiredColumns) {
+            throw new Error(
+              'The uploaded file is missing expected columns. Please ensure it is an Equals Money card transaction export.'
+            );
+          }
+
+          const transactionType = row[5].trim();
+          const detail = row[2].trim();
+          const status = row[3].trim();
+
+          if (settings.skipInternal && transactionType === 'Internal Transfer') {
+            summary.skipped_internal += 1;
+            continue;
+          }
+          if (settings.skipCardChecks && detail === 'Card check') {
+            summary.skipped_card_checks += 1;
+            continue;
+          }
+          if (settings.skipDeclined && status === 'Declined') {
+            summary.skipped_declined += 1;
+            continue;
+          }
+
+          const rawDate = row[0].trim();
+          const formattedDate = formatDate(rawDate);
+          const amount = determineAmount(row);
+          const description = `${row[7].trim()}-${row[4].trim()}`;
+
+          output.push([formattedDate, amount, description].map(escapeCsvField));
+          summary.accepted += 1;
+        }
+
+        return { csvText: output.map((r) => r.join(',')).join('\r\n'), summary };
+      }
+
+      function formatDate(rawDate) {
+        const trimmed = rawDate.trim();
+        const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) {
+          const [, year, month, day] = isoMatch;
+          return `${day}/${month}/${year}`;
+        }
+
+        const slashMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if (slashMatch) {
+          return `${slashMatch[1]}/${slashMatch[2]}/${slashMatch[3]}`;
+        }
+
+        throw new Error(
+          `Unable to parse date '${rawDate}'. Please ensure the first column contains either DD/MM/YYYY or YYYY-MM-DD dates.`
+        );
+      }
+
+      function determineAmount(row) {
+        const tenthColumn = row[9]?.trim() ?? '';
+        const eleventhColumn = row[10]?.trim() ?? '';
+
+        const tenthValue = parseAmountValue(tenthColumn);
+        if (tenthValue > 0) {
+          return formatAmountOutput(tenthColumn);
+        }
+
+        const eleventhValue = parseAmountValue(eleventhColumn);
+        if (eleventhValue > 0) {
+          return '-' + formatAmountOutput(eleventhColumn).replace(/^-/, '');
+        }
+
+        throw new Error(
+          'Unable to determine the transaction amount. Columns 10 and 11 both appear to be empty or zero.'
+        );
+      }
+
+      function parseAmountValue(rawValue) {
+        if (!rawValue) return 0;
+        const normalized = rawValue.replace(/,/g, '').trim();
+        if (normalized === '') return 0;
+        const numeric = Number(normalized);
+        return Number.isFinite(numeric) ? numeric : 0;
+      }
+
+      function formatAmountOutput(rawValue) {
+        const normalized = rawValue.replace(/,/g, '').trim();
+        if (normalized === '') return '0';
+        if (/^-/.test(normalized)) {
+          return normalized;
+        }
+        return normalized;
+      }
+
+      function escapeCsvField(value) {
+        const needsQuotes = /[",\n]/.test(value);
+        if (!needsQuotes) return value;
+        return '"' + value.replace(/"/g, '""') + '"';
+      }
+
+      function parseCsv(text) {
+        const normalized = text.replace(/\r\n?/g, '\n');
+        const lines = normalized.split('\n').filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
+        const rows = lines.map(parseCsvLine);
+        return rows;
+      }
+
+      function parseCsvLine(line) {
+        const row = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i += 1) {
+          const char = line[i];
+
+          if (inQuotes) {
+            if (char === '"') {
+              const next = line[i + 1];
+              if (next === '"') {
+                current += '"';
+                i += 1; // skip escaped quote
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              current += char;
+            }
+          } else {
+            if (char === '"') {
+              inQuotes = true;
+            } else if (char === ',') {
+              row.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+        }
+
+        row.push(current);
+        return row;
+      }
+    </script>
+  </body>
+</html>
