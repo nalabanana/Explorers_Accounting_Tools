@@ -9,9 +9,10 @@ Convert CSV exports from Equals Money expense cards into a FreeAgent-ready CSV d
 
 **How to use**
 1. Open `Equalstofreeagent.html` or launch it from the landing page (`index.html`).
-2. Upload the CSV exported from Equals Money (Expense Cards > Export CSV).
-3. Choose which transaction types to omit and whether to remove the header row.
-4. Download the generated `freeagent-transactions.csv` file and import it into FreeAgent.
+2. In Equals, go to `Activity > Downloads > Statements` and select CSV file format.
+3. Upload the CSV exported from Equals Money.
+4. Choose which transaction types to omit and whether to remove the header row.
+5. Download the generated `freeagent-transactions.csv` file and import it into FreeAgent.
 
 ### Stripe Monthly Payout Summary (`stripe-monthly-payout-summary.html`)
 Summarize Stripe payout exports by description, with optional grouping by trailing bracketed text (e.g., `(Subs)`).
