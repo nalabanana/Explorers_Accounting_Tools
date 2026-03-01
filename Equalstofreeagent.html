@@ -126,6 +126,9 @@
         Upload a CSV exported from your Equals Money expense cards and download a
         FreeAgent-ready CSV.
       </p>
+      <p>
+        To generate a statement in Equals go to Activity &gt; Downloads &gt; Statements. Select CSV file format.
+      </p>
     </header>
 
     <section class="card">
@@ -189,6 +192,15 @@
       const omitCardChecksCheckbox = document.getElementById('omit-card-checks');
       const omitDeclinedCheckbox = document.getElementById('omit-declined');
       const omitHeaderCheckbox = document.getElementById('omit-header');
+      const SOURCE_COLUMNS = {
+        date: 0,
+        status: 3,
+        transactionType: 4,
+        internalTransferCheck: 7,
+        descriptionPartOne: 9,
+        descriptionPartTwo: 6,
+        amount: 11,
+      };
 
       form.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -282,7 +294,7 @@
           throw new Error('The uploaded CSV is empty.');
         }
 
-        const requiredColumns = 15;
+        const requiredColumns = SOURCE_COLUMNS.amount + 1;
         const output = settings.includeHeader ? [['Date', 'Amount', 'Description']] : [];
         const summary = {
           total: 0,
@@ -307,15 +319,15 @@
             );
           }
 
-          const transactionType = row[5].trim();
-          const detail = row[2].trim();
-          const status = row[3].trim();
+          const transactionType = row[SOURCE_COLUMNS.transactionType].trim();
+          const internalTransferValue = row[SOURCE_COLUMNS.internalTransferCheck].trim();
+          const status = row[SOURCE_COLUMNS.status].trim();
 
-          if (settings.skipInternal && transactionType === 'Internal Transfer') {
+          if (settings.skipInternal && internalTransferValue === 'Internal Transfer') {
             summary.skipped_internal += 1;
             continue;
           }
-          if (settings.skipCardChecks && detail === 'Card check') {
+          if (settings.skipCardChecks && transactionType === 'Card check') {
             summary.skipped_card_checks += 1;
             continue;
           }
@@ -324,10 +336,12 @@
             continue;
           }
 
-          const rawDate = row[0].trim();
+          const rawDate = row[SOURCE_COLUMNS.date].trim();
           const formattedDate = formatDate(rawDate);
-          const amount = determineAmount(row);
-          const description = `${row[7].trim()}-${row[4].trim()}`;
+          const amount = formatAmountOutput(row[SOURCE_COLUMNS.amount] ?? '');
+          const description = `${row[SOURCE_COLUMNS.descriptionPartOne].trim()}-${row[
+            SOURCE_COLUMNS.descriptionPartTwo
+          ].trim()}`;
 
           output.push([formattedDate, amount, description].map(escapeCsvField));
           summary.accepted += 1;
@@ -354,36 +368,11 @@
         );
       }
 
-      function determineAmount(row) {
-        const tenthColumn = row[9]?.trim() ?? '';
-        const eleventhColumn = row[10]?.trim() ?? '';
-
-        const tenthValue = parseAmountValue(tenthColumn);
-        if (tenthValue > 0) {
-          return formatAmountOutput(tenthColumn);
-        }
-
-        const eleventhValue = parseAmountValue(eleventhColumn);
-        if (eleventhValue > 0) {
-          return '-' + formatAmountOutput(eleventhColumn).replace(/^-/, '');
-        }
-
-        throw new Error(
-          'Unable to determine the transaction amount. Columns 10 and 11 both appear to be empty or zero.'
-        );
-      }
-
-      function parseAmountValue(rawValue) {
-        if (!rawValue) return 0;
-        const normalized = rawValue.replace(/,/g, '').trim();
-        if (normalized === '') return 0;
-        const numeric = Number(normalized);
-        return Number.isFinite(numeric) ? numeric : 0;
-      }
-
       function formatAmountOutput(rawValue) {
         const normalized = rawValue.replace(/,/g, '').trim();
-        if (normalized === '') return '0';
+        if (normalized === '') {
+          throw new Error('Unable to determine the transaction amount from source column 12.');
+        }
         if (/^-/.test(normalized)) {
           return normalized;
         }
